@@ -63,5 +63,5 @@ warn_unused_configs = true
 testpaths = ["tests"]
 python_files = "test_*.py"
 python_functions = "test_*"
-addopts = "--cov=src/triggerfish --cov-report=html --cov-report=term"
+# addopts = "--cov=src/triggerfish --cov-report=html --cov-report=term"
 asyncio_mode = "auto"

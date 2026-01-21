@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Dict, Iterable, List, Optional
+from typing import Iterable, Optional
 
 from lsprotocol.types import (
     CompletionList,
@@ -17,22 +17,33 @@ from lsprotocol.types import (
     ServerCapabilities,
     TextDocumentSyncKind,
 )
-from pygls.server import LanguageServer
-from pygls.uris import uri_to_path
+from pygls.lsp.server import LanguageServer
+from pygls.uris import to_fs_path
 
 from .completion_handler import CompletionHandler
 from .config import TriggerfishConfig
-from .ctags_manager import CTagsError, CTagsManager
 from .symbol_index import Symbol, SymbolIndex, SymbolKind
 
 
-_KIND_MAP: Dict[str, SymbolKind] = {
-    "class": SymbolKind.CLASS,
-    "function": SymbolKind.FUNCTION,
-    "method": SymbolKind.METHOD,
-    "member": SymbolKind.VARIABLE,
-    "variable": SymbolKind.VARIABLE,
-}
+_IGNORED_DIRS = frozenset(
+    {
+        ".git",
+        ".hg",
+        ".svn",
+        "__pycache__",
+        ".mypy_cache",
+        ".pytest_cache",
+        ".ruff_cache",
+        ".tox",
+        ".nox",
+        ".venv",
+        "venv",
+        "env",
+        "node_modules",
+        "dist",
+        "build",
+    }
+)
 
 
 class TriggerfishLanguageServer(LanguageServer):
@@ -41,7 +52,6 @@ class TriggerfishLanguageServer(LanguageServer):
     def __init__(self, config: TriggerfishConfig) -> None:
         super().__init__("triggerfish", "0.1.0")
         self.config = config
-        self.ctags = CTagsManager(config)
         self.index = SymbolIndex()
         self.completion = CompletionHandler(self.index, config)
         self._workspace_root: Optional[Path] = None
@@ -75,78 +85,66 @@ class TriggerfishLanguageServer(LanguageServer):
 
         @self.feature("textDocument/didOpen")
         async def did_open(params: DidOpenTextDocumentParams) -> None:
-            file_path = Path(uri_to_path(params.text_document.uri))
+            file_path = Path(to_fs_path(params.text_document.uri))
             await self._index_file(file_path)
 
         @self.feature("textDocument/didChange")
         async def did_change(params: DidChangeTextDocumentParams) -> None:
-            file_path = Path(uri_to_path(params.text_document.uri))
+            file_path = Path(to_fs_path(params.text_document.uri))
             await self._index_file(file_path)
 
         @self.feature("textDocument/completion")
         async def completion(params: CompletionParams) -> CompletionList:
-            document = self.workspace.get_document(params.text_document.uri)
-            line_text = ""
-            if params.position.line < len(document.lines):
-                line_text = document.lines[params.position.line]
-            items = self.completion.get_completions(
-                line_text, params.position.character
-            )
-            return CompletionList(is_incomplete=False, items=items)
+            return await self._completion(params)
 
     async def _index_file(self, file_path: Path) -> None:
-        try:
-            tags = self.ctags.generate_tags(file_path)
-        except CTagsError as exc:
-            logging.warning("ctags failed for %s: %s", file_path, exc)
-            tags = []
-
-        symbols = list(self._symbols_from_tags(file_path, tags))
-        self.index.update_file(file_path, symbols)
-
-    async def _index_workspace(self, workspace_path: Path) -> None:
-        for file_path in workspace_path.rglob("*.py"):
-            if file_path.is_file():
-                await self._index_file(file_path)
-        logging.info("Indexed workspace: %s", self.index.stats())
-
-    def _symbols_from_tags(
-        self, file_path: Path, tags: Iterable[Dict[str, object]]
-    ) -> Iterable[Symbol]:
         file_symbol_name = _relative_name(self._workspace_root, file_path)
-        yield Symbol(
+        symbol = Symbol(
             name=file_symbol_name,
             kind=SymbolKind.FILE,
             file_path=file_path,
             line=1,
         )
-        for tag in tags:
-            kind_name = tag.get("kind")
-            if not isinstance(kind_name, str):
+        self.index.update_file(file_path, [symbol])
+
+    async def _index_workspace(self, workspace_path: Path) -> None:
+        for file_path in self._walk_project_files(workspace_path):
+            self._add_file_symbol(file_path)
+        logging.info("Indexed workspace: %s", self.index.stats())
+
+    async def _completion(self, params: CompletionParams) -> CompletionList:
+        if not params.text_document.uri.endswith(".txt"):
+            return CompletionList(is_incomplete=False, items=[])
+
+        document = self.workspace.get_text_document(params.text_document.uri)
+        line_text = ""
+        if params.position.line < len(document.lines):
+            line_text = document.lines[params.position.line]
+        items = self.completion.get_completions(line_text, params.position.character)
+        return CompletionList(is_incomplete=False, items=items)
+
+    def _walk_project_files(self, workspace_path: Path) -> Iterable[Path]:
+        """Walk all files in workspace, skipping ignored directories."""
+        for item in workspace_path.iterdir():
+            if item.name.startswith(".") and item.is_dir():
                 continue
-            symbol_kind = _KIND_MAP.get(kind_name)
-            if symbol_kind is None:
+            if item.name in _IGNORED_DIRS:
                 continue
-            name = tag.get("name")
-            if not isinstance(name, str):
-                continue
-            line = tag.get("line")
-            if not isinstance(line, int):
-                line = 1
-            scope = tag.get("scope")
-            if scope is not None and not isinstance(scope, str):
-                scope = None
-            language = tag.get("language")
-            if language is not None and not isinstance(language, str):
-                language = None
-            yield Symbol(
-                name=name,
-                kind=symbol_kind,
-                file_path=file_path,
-                line=line,
-                scope=scope,
-                language=language,
-            )
+            if item.is_file():
+                yield item
+            elif item.is_dir():
+                yield from self._walk_project_files(item)
+
+    def _add_file_symbol(self, file_path: Path) -> None:
+        """Add a FILE symbol for @ completion without running ctags."""
+        file_symbol_name = _relative_name(self._workspace_root, file_path)
+        symbol = Symbol(
+            name=file_symbol_name,
+            kind=SymbolKind.FILE,
+            file_path=file_path,
+            line=1,
+        )
+        self.index.add_symbols([symbol])
 
 
 def create_server(config: Optional[TriggerfishConfig] = None) -> TriggerfishLanguageServer:
@@ -159,9 +157,9 @@ def create_server(config: Optional[TriggerfishConfig] = None) -> TriggerfishLang
 def _get_workspace_root(params: InitializeParams) -> Optional[Path]:
     if params.workspace_folders:
         folder = params.workspace_folders[0]
-        return Path(uri_to_path(folder.uri))
+        return Path(to_fs_path(folder.uri))
     if params.root_uri:
-        return Path(uri_to_path(params.root_uri))
+        return Path(to_fs_path(params.root_uri))
     return None
 
 
