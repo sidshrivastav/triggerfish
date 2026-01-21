@@ -19,7 +19,7 @@ Lightning-fast LSP server with smart trigger-based file completions.
 pip install -e .
 
 # From PyPI (future)
-pip install triggerfish-lsp
+pip install triggerfish
 ```
 
 ## Usage

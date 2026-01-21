@@ -3,7 +3,7 @@ requires = ["setuptools>=61.0", "wheel"]
 build-backend = "setuptools.build_meta"
 
 [project]
-name = "triggerfish-lsp"
+name = "triggerfish"
 version = "0.1.0"
 description = "Lightning-fast LSP using ctags with smart triggers"
 readme = "README.md"
