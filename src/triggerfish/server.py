@@ -4,9 +4,10 @@ from __future__ import annotations
 
 import logging
 from pathlib import Path
-from typing import Iterable, Optional
+from typing import Iterable, List, Optional
 
 from lsprotocol.types import (
+    CompletionItemKind,
     CompletionList,
     CompletionOptions,
     CompletionParams,
@@ -22,6 +23,7 @@ from pygls.uris import to_fs_path
 
 from .completion_handler import CompletionHandler
 from .config import TriggerfishConfig
+from .ctags_manager import CTagsManager, CTagsError
 from .symbol_index import Symbol, SymbolIndex, SymbolKind
 
 
@@ -53,7 +55,19 @@ class TriggerfishLanguageServer(LanguageServer):
         super().__init__("triggerfish", "0.1.0")
         self.config = config
         self.index = SymbolIndex()
-        self.completion = CompletionHandler(self.index, config)
+        self.ctags = CTagsManager(config)
+
+        # Create completion handlers for different triggers
+        self.file_completion = CompletionHandler(
+            self.index, config, "@", [SymbolKind.FILE], CompletionItemKind.File
+        )
+        self.class_completion = CompletionHandler(
+            self.index, config, ".", [SymbolKind.CLASS], CompletionItemKind.Class
+        )
+        self.method_completion = CompletionHandler(
+            self.index, config, "#", [SymbolKind.METHOD, SymbolKind.FUNCTION], CompletionItemKind.Method
+        )
+
         self._workspace_root: Optional[Path] = None
         self._setup_logging()
         self._register_handlers()
@@ -74,7 +88,7 @@ class TriggerfishLanguageServer(LanguageServer):
             capabilities = ServerCapabilities(
                 text_document_sync=TextDocumentSyncKind.Incremental,
                 completion_provider=CompletionOptions(
-                    trigger_characters=[CompletionHandler.FILE_TRIGGER]
+                    trigger_characters=["@", ".", "#"]
                 ),
             )
             return InitializeResult(capabilities=capabilities)
@@ -99,17 +113,29 @@ class TriggerfishLanguageServer(LanguageServer):
 
     async def _index_file(self, file_path: Path) -> None:
         file_symbol_name = _relative_name(self._workspace_root, file_path)
-        symbol = Symbol(
-            name=file_symbol_name,
-            kind=SymbolKind.FILE,
-            file_path=file_path,
-            line=1,
-        )
-        self.index.update_file(file_path, [symbol])
+        symbols = [
+            Symbol(
+                name=file_symbol_name,
+                kind=SymbolKind.FILE,
+                file_path=file_path,
+                line=1,
+            )
+        ]
+
+        # Also parse code symbols if ctags is available
+        code_symbols = self._parse_code_symbols(file_path)
+        if code_symbols:
+            symbols.extend(code_symbols)
+
+        self.index.update_file(file_path, symbols)
 
     async def _index_workspace(self, workspace_path: Path) -> None:
         for file_path in self._walk_project_files(workspace_path):
             self._add_file_symbol(file_path)
+            # Also parse code symbols from each file
+            code_symbols = self._parse_code_symbols(file_path)
+            if code_symbols:
+                self.index.add_symbols(code_symbols)
         logging.info("Indexed workspace: %s", self.index.stats())
 
     async def _completion(self, params: CompletionParams) -> CompletionList:
@@ -120,8 +146,48 @@ class TriggerfishLanguageServer(LanguageServer):
         line_text = ""
         if params.position.line < len(document.lines):
             line_text = document.lines[params.position.line]
-        items = self.completion.get_completions(line_text, params.position.character)
-        return CompletionList(is_incomplete=False, items=items)
+
+        # Check which trigger was used and route to appropriate handler
+        handlers = [
+            self.file_completion,
+            self.class_completion,
+            self.method_completion,
+        ]
+
+        for handler in handlers:
+            if handler.should_trigger(line_text, params.position.character):
+                items = handler.get_completions(line_text, params.position.character)
+                return CompletionList(is_incomplete=False, items=items)
+
+        return CompletionList(is_incomplete=False, items=[])
+
+    def _parse_code_symbols(self, file_path: Path) -> List[Symbol]:
+        """Parse code symbols (class, method, function) from a file using ctags."""
+        try:
+            tags = self.ctags.generate_tags(file_path)
+        except CTagsError:
+            # If ctags fails, just return empty list (file is still indexed)
+            return []
+
+        symbols: List[Symbol] = []
+        for tag in tags:
+            # Map ctags kind to our SymbolKind
+            kind = _map_ctags_kind(tag.get("kind"))
+            if kind is None:
+                continue
+
+            symbols.append(
+                Symbol(
+                    name=tag.get("name", ""),
+                    kind=kind,
+                    file_path=file_path,
+                    line=tag.get("line", 1),
+                    scope=tag.get("scope"),
+                    language=tag.get("language"),
+                )
+            )
+
+        return symbols
 
     def _walk_project_files(self, workspace_path: Path) -> Iterable[Path]:
         """Walk all files in workspace, skipping ignored directories."""
@@ -170,3 +236,34 @@ def _relative_name(workspace_root: Optional[Path], file_path: Path) -> str:
         except ValueError:
             pass
     return file_path.name
+
+
+def _map_ctags_kind(ctags_kind: Optional[str]) -> Optional[SymbolKind]:
+    """Map ctags kind string to SymbolKind."""
+    if not ctags_kind:
+        return None
+
+    # Map common ctags kinds to our SymbolKind
+    kind_mapping = {
+        # Classes
+        "class": SymbolKind.CLASS,
+        "interface": SymbolKind.CLASS,
+        "struct": SymbolKind.CLASS,
+        "enum": SymbolKind.CLASS,
+        "type": SymbolKind.CLASS,
+        # Methods
+        "method": SymbolKind.METHOD,
+        "member": SymbolKind.METHOD,
+        # Functions
+        "function": SymbolKind.FUNCTION,
+        "func": SymbolKind.FUNCTION,
+        "procedure": SymbolKind.FUNCTION,
+        "subroutine": SymbolKind.FUNCTION,
+        # Variables
+        "variable": SymbolKind.VARIABLE,
+        "var": SymbolKind.VARIABLE,
+        "field": SymbolKind.VARIABLE,
+        "constant": SymbolKind.VARIABLE,
+    }
+
+    return kind_mapping.get(ctags_kind.lower())
