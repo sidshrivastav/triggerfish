@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from lsprotocol.types import CompletionItemKind
+
 from triggerfish.completion_handler import CompletionHandler
 from triggerfish.config import TriggerfishConfig
 from triggerfish.symbol_index import Symbol, SymbolIndex, SymbolKind
@@ -17,7 +19,7 @@ def test_completion_flow() -> None:
         ]
     )
     config = TriggerfishConfig(log_file=Path("/tmp/log.txt"))
-    handler = CompletionHandler(index, config)
+    handler = CompletionHandler(index, config, "@", [SymbolKind.FILE], CompletionItemKind.File)
 
     completions = handler.get_completions("@myfi", len("@myfi"))
     labels = [item.label for item in completions]

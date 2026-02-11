@@ -2,6 +2,8 @@
 
 from pathlib import Path
 
+from lsprotocol.types import CompletionItemKind
+
 from triggerfish.completion_handler import CompletionHandler
 from triggerfish.config import TriggerfishConfig
 from triggerfish.symbol_index import Symbol, SymbolIndex, SymbolKind
@@ -10,7 +12,7 @@ from triggerfish.symbol_index import Symbol, SymbolIndex, SymbolKind
 def test_should_trigger_and_parse() -> None:
     index = SymbolIndex()
     config = TriggerfishConfig(log_file=Path("/tmp/log.txt"))
-    handler = CompletionHandler(index, config)
+    handler = CompletionHandler(index, config, "@", [SymbolKind.FILE], CompletionItemKind.File)
 
     line = "open @utils"
     assert handler.should_trigger(line, len(line))
@@ -26,7 +28,7 @@ def test_get_completions() -> None:
         ]
     )
     config = TriggerfishConfig(log_file=Path("/tmp/log.txt"))
-    handler = CompletionHandler(index, config)
+    handler = CompletionHandler(index, config, "@", [SymbolKind.FILE], CompletionItemKind.File)
 
     completions = handler.get_completions("@util", len("@util"))
     assert completions
