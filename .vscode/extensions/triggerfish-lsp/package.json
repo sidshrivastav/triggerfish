@@ -1,0 +1,35 @@
+{
+  "name": "triggerfish-lsp",
+  "displayName": "Triggerfish LSP",
+  "version": "0.1.0",
+  "publisher": "local",
+  "engines": {
+    "vscode": "^1.75.0"
+  },
+  "activationEvents": [
+    "onLanguage:plaintext"
+  ],
+  "main": "./extension.js",
+  "contributes": {
+    "configuration": {
+      "title": "Triggerfish",
+      "properties": {
+        "triggerfish.pythonPath": {
+          "type": "string",
+          "default": "python",
+          "description": "Path to Python executable"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [],
+  "author": "",
+  "license": "ISC",
+  "description": "",
+  "dependencies": {
+    "vscode-languageclient": "^9.0.1"
+  }
+}
