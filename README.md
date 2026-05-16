@@ -11,7 +11,6 @@ Lightning-fast LSP server with smart trigger-based completions for files, classe
 - Automatic workspace indexing with `universal-ctags` integration
 - Shows all project files and code symbols
 - Intelligent directory filtering (ignores `.git`, `node_modules`, etc.)
-- Optional Go core subprocess for graph queries
 
 ## Requirements
 
@@ -26,7 +25,7 @@ Lightning-fast LSP server with smart trigger-based completions for files, classe
 
 ```bash
 # From source
-pip install -e lsp
+pip install -e .
 
 # From PyPI (future)
 pip install triggerfish
@@ -38,7 +37,7 @@ The fastest way to get started with VSCode:
 
 ```bash
 # 1. Install Triggerfish
-pip install -e lsp
+pip install -e .
 
 # 2. Install extension dependencies
 cd .vscode/extensions/triggerfish-lsp
@@ -57,7 +56,6 @@ npm install
 
 ```bash
 # Start server
-cd lsp
 python -m triggerfish
 
 # With debug logging
@@ -80,7 +78,7 @@ The repository includes a ready-to-use VSCode extension at `.vscode/extensions/t
 
 2. Open the workspace in VSCode - the extension is automatically discovered
 
-3. The extension will automatically use `lsp/.venv/bin/python` if available, otherwise falls back to system `python`
+3. The extension will automatically use `.venv/bin/python` if available, otherwise falls back to system `python`
 
 4. Open a `.txt` file and start using `@`, `.`, or `#` triggers
 
@@ -149,7 +147,7 @@ function activate(context) {
   const config = vscode.workspace.getConfiguration('triggerfish');
   const workspaceFolder = vscode.workspace.workspaceFolders?.[0]?.uri.fsPath;
   const defaultPythonPath = workspaceFolder
-    ? `${workspaceFolder}/lsp/.venv/bin/python`
+    ? `${workspaceFolder}/.venv/bin/python`
     : 'python';
   const pythonPath = config.get('pythonPath') || defaultPythonPath;
 
@@ -365,7 +363,7 @@ Fix #handleClick method
 
 ## Configuration
 
-Triggerfish can be configured via environment variables or `.env` file:
+Triggerfish can be configured via environment variables:
 
 | Variable | Default | Description |
 |----------|---------|-------------|
@@ -375,9 +373,6 @@ Triggerfish can be configured via environment variables or `.env` file:
 | `TRIGGERFISH_CTAGS_TIMEOUT` | `30` | Timeout for ctags execution (seconds) |
 | `TRIGGERFISH_MIN_FUZZY_SCORE` | `60` | Minimum fuzzy match score (0-100) |
 | `TRIGGERFISH_MAX_COMPLETION_ITEMS` | `50` | Maximum completion items to return |
-| `TRIGGERFISH_CORE_ENABLED` | `1` | Enable Go core subprocess |
-| `TRIGGERFISH_CORE_EXECUTABLE` | `triggerfish-core` | Path to Go core binary |
-| `TRIGGERFISH_CORE_TIMEOUT` | `10` | Core request timeout (seconds) |
 
 ### Examples
 
@@ -397,56 +392,32 @@ export TRIGGERFISH_MIN_FUZZY_SCORE=40
 # Debug logging
 export TRIGGERFISH_LOG_LEVEL=DEBUG
 
-# Disable core subprocess
-export TRIGGERFISH_CORE_ENABLED=0
-
 # Start server with custom config
-cd lsp
 python -m triggerfish
 ```
 
 ## Development
 
 ```bash
-# Enter dev environment (Nix)
-nix develop
-
-# Configure (optional)
-cp .env.example .env
-
-# Build Go core
-make core-build
-
-# Run smoke test
-make smoke
-
 # Install dev dependencies
-pip install -e lsp[dev]
+pip install -e ".[dev]"
 
 # Run tests
-cd lsp
 pytest
 
 # Check coverage
-pytest --cov=triggerfish --cov-report=html
+pytest --cov=src/triggerfish --cov-report=html
 
 # Format code
-black triggerfish tests
+black src/ tests/
 
 # Type check
-mypy triggerfish
+mypy src/
 
 # Lint
-ruff check triggerfish tests
-pylint triggerfish
+ruff check src/ tests/
+pylint src/
 ```
-
-## Architecture
-
-- `lsp/` - Python LSP server (editor-facing)
-- `core/` - Go graph engine (subprocess)
-- Communication: STDIO newline-delimited JSON
-- Graph v0: Definition graph (files, classes, functions)
 
 ## Troubleshooting
 
@@ -491,7 +462,6 @@ ctags --version
 ctags --output-format=json --fields=* --excmd=pattern your_file.py
 
 # Start server with debug logging
-cd lsp
 python -m triggerfish --log-level DEBUG
 
 # Check logs

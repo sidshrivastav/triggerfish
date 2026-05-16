@@ -19,7 +19,6 @@ pygls==2.0.0
 Pygments==2.19.2
 pylint==3.3.7
 pytest==8.4.1
-python-dotenv==1.1.1
 RapidFuzz==3.14.3
 setuptools==80.9.0.post0
 tomlkit==0.13.3

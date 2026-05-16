@@ -23,7 +23,6 @@ from pygls.uris import to_fs_path
 
 from .completion_handler import CompletionHandler
 from .config import TriggerfishConfig
-from .core_client import CoreClient, CoreConfig
 from .ctags_manager import CTagsManager, CTagsError
 from .symbol_index import Symbol, SymbolIndex, SymbolKind
 
@@ -66,19 +65,8 @@ class TriggerfishLanguageServer(LanguageServer):
             self.index, config, ".", [SymbolKind.CLASS], CompletionItemKind.Class
         )
         self.method_completion = CompletionHandler(
-            self.index,
-            config,
-            "#",
-            [SymbolKind.METHOD, SymbolKind.FUNCTION],
-            CompletionItemKind.Method,
+            self.index, config, "#", [SymbolKind.METHOD, SymbolKind.FUNCTION], CompletionItemKind.Method
         )
-
-        core_config = CoreConfig(
-            core_executable=config.core_executable,
-            request_timeout=float(config.core_timeout),
-            enabled=config.core_enabled,
-        )
-        self.core_client = CoreClient(core_config)
 
         self._workspace_root: Optional[Path] = None
         self._setup_logging()
@@ -142,11 +130,6 @@ class TriggerfishLanguageServer(LanguageServer):
         self.index.update_file(file_path, symbols)
 
     async def _index_workspace(self, workspace_path: Path) -> None:
-        if self.core_client.start():
-            logging.info("Core subprocess available")
-        else:
-            logging.info("Running without core subprocess")
-
         for file_path in self._walk_project_files(workspace_path):
             self._add_file_symbol(file_path)
             # Also parse code symbols from each file

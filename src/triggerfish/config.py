@@ -7,26 +7,8 @@ from pathlib import Path
 from typing import Optional
 import os
 
-from dotenv import load_dotenv
-
 
 _ENV_PREFIX = "TRIGGERFISH_"
-
-
-def _load_env_file() -> None:
-    """Load .env file if it exists."""
-    env_paths = [
-        Path.cwd() / ".env",
-        Path(__file__).parent.parent / ".env",
-        Path(__file__).parent.parent.parent / ".env",
-    ]
-    for env_path in env_paths:
-        if env_path.exists():
-            load_dotenv(env_path)
-            return
-
-
-_load_env_file()
 
 
 @dataclass
@@ -39,9 +21,6 @@ class TriggerfishConfig:
     ctags_timeout: int = 30
     min_fuzzy_score: int = 60
     max_completion_items: int = 50
-    core_enabled: bool = True
-    core_executable: str = "triggerfish-core"
-    core_timeout: int = 10
 
     @classmethod
     def default(cls) -> "TriggerfishConfig":
@@ -60,9 +39,6 @@ class TriggerfishConfig:
         ctags_timeout = _get_int_env(f"{_ENV_PREFIX}CTAGS_TIMEOUT")
         min_fuzzy_score = _get_int_env(f"{_ENV_PREFIX}MIN_FUZZY_SCORE")
         max_completion_items = _get_int_env(f"{_ENV_PREFIX}MAX_COMPLETION_ITEMS")
-        core_enabled = os.getenv(f"{_ENV_PREFIX}CORE_ENABLED", "1")
-        core_executable = os.getenv(f"{_ENV_PREFIX}CORE_EXECUTABLE")
-        core_timeout = _get_int_env(f"{_ENV_PREFIX}CORE_TIMEOUT")
 
         if log_level:
             config.log_level = log_level
@@ -76,11 +52,6 @@ class TriggerfishConfig:
             config.min_fuzzy_score = min_fuzzy_score
         if max_completion_items is not None:
             config.max_completion_items = max_completion_items
-        config.core_enabled = core_enabled.lower() in ("1", "true", "yes")
-        if core_executable:
-            config.core_executable = core_executable
-        if core_timeout is not None:
-            config.core_timeout = core_timeout
         return config
 
 
